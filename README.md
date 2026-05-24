@@ -12,7 +12,7 @@ Go service scaffolding tool — generates production-ready project structures fo
 ### Build từ source
 
 ```bash
-git clone https://github.com/interlabs/service-gen
+git clone https://github.com/baolongdinh/service-gen
 cd service-gen
 go build -o service-gen ./cmd
 ```
@@ -20,7 +20,7 @@ go build -o service-gen ./cmd
 Hoặc install trực tiếp vào `$GOPATH/bin`:
 
 ```bash
-go install github.com/interlabs/service-gen/cmd@latest
+go install github.com/baolongdinh/service-gen/cmd@latest
 ```
 
 ---

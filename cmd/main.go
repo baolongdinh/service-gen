@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/interlabs/service-gen/generator"
+	"github.com/baolongdinh/service-gen/generator"
 )
 
 func main() {

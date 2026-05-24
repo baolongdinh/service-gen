@@ -1,3 +1,3 @@
-module github.com/interlabs/service-gen
+module github.com/baolongdinh/service-gen
 
 go 1.22.0
