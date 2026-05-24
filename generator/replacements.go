@@ -25,7 +25,7 @@ func applyReplacements(content string, cfg *ProjectConfig) string {
 		{srcServiceName, cfg.ServiceName},
 		{srcOrg, cfg.OrgName},
 		{"go 1.22.0", "go " + cfg.GoVersion + ".0"},
-		{"Vulcan service", cfg.ServicePascal + " service"},
+		{"My service", cfg.ServicePascal + " service"},
 	}
 	for _, rep := range reps {
 		if rep.old != rep.new {
