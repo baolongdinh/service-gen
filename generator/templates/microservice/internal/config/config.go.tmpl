@@ -1,0 +1,59 @@
+package config
+
+import (
+	"fmt"
+	"github.com/caarlos0/env/v11"
+)
+
+type Config struct {
+	App      AppConfig
+	Database DatabaseConfig
+	Redis    RedisConfig
+	Log      LogConfig
+}
+
+type AppConfig struct {
+	Port int    `env:"APP_PORT" envDefault:"8080"`
+	Env  string `env:"APP_ENV" envDefault:"development"`
+	Name string `env:"APP_NAME" envDefault:"my-service"`
+}
+
+type DatabaseConfig struct {
+	Host     string `env:"DB_HOST,required"`
+	Port     int    `env:"DB_PORT" envDefault:"5432"`
+	Name     string `env:"DB_NAME,required"`
+	User     string `env:"DB_USER,required"`
+	Password string `env:"DB_PASSWORD,required"`
+	SSLMode  string `env:"DB_SSL_MODE" envDefault:"disable"`
+	MaxConns int32  `env:"DB_MAX_CONNS" envDefault:"10"`
+	MinConns int32  `env:"DB_MIN_CONNS" envDefault:"2"`
+}
+
+func (d DatabaseConfig) DSN() string {
+	return fmt.Sprintf(
+		"host=%s port=%d dbname=%s user=%s password=%s sslmode=%s pool_max_conns=%d pool_min_conns=%d",
+		d.Host, d.Port, d.Name, d.User, d.Password, d.SSLMode, d.MaxConns, d.MinConns,
+	)
+}
+
+type RedisConfig struct {
+	Host     string `env:"REDIS_HOST" envDefault:"localhost"`
+	Port     int    `env:"REDIS_PORT" envDefault:"6379"`
+	Password string `env:"REDIS_PASSWORD"`
+	DB       int    `env:"REDIS_DB" envDefault:"0"`
+}
+
+func (r RedisConfig) Addr() string { return fmt.Sprintf("%s:%d", r.Host, r.Port) }
+
+type LogConfig struct {
+	Level  string `env:"LOG_LEVEL" envDefault:"debug"`
+	Format string `env:"LOG_FORMAT" envDefault:"text"`
+}
+
+func Load() (*Config, error) {
+	cfg := &Config{}
+	if err := env.Parse(cfg); err != nil {
+		return nil, fmt.Errorf("parsing config: %w", err)
+	}
+	return cfg, nil
+}

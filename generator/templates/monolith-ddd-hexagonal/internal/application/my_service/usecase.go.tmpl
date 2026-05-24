@@ -1,0 +1,60 @@
+package my_service
+
+import (
+	"context"
+	"time"
+
+	domain "github.com/my-org/my-service/internal/domain/my_service"
+)
+
+// UseCase is the inbound port for the MyService bounded context.
+// HTTP handlers and gRPC servers depend on this interface — never on infra or domain directly.
+// To add a new bounded context: create a sibling package under internal/application/.
+type UseCase interface {
+	Create(ctx context.Context, cmd CreateCommand) (*MyServiceResult, error)
+	GetByID(ctx context.Context, id string) (*MyServiceResult, error)
+	List(ctx context.Context, q ListQuery) (*ListResult, error)
+	Update(ctx context.Context, cmd UpdateCommand) (*MyServiceResult, error)
+	Delete(ctx context.Context, id string) error
+}
+
+// CreateCommand carries data for creating a MyService.
+type CreateCommand struct {
+	Name string `json:"name"`
+}
+
+// UpdateCommand carries data for updating a MyService.
+type UpdateCommand struct {
+	ID   string
+	Name string `json:"name"`
+}
+
+// ListQuery carries pagination and filter parameters.
+type ListQuery struct {
+	Page     int
+	PageSize int
+	NameLike string
+}
+
+// MyServiceResult is the read model returned from all use cases.
+type MyServiceResult struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// ListResult wraps a paginated slice of MyServiceResult.
+type ListResult struct {
+	Items []*MyServiceResult `json:"items"`
+	Total int                `json:"total"`
+}
+
+func toResult(ms *domain.MyService) *MyServiceResult {
+	return &MyServiceResult{
+		ID:        ms.ID().String(),
+		Name:      ms.Name(),
+		CreatedAt: ms.CreatedAt(),
+		UpdatedAt: ms.UpdatedAt(),
+	}
+}

@@ -1,0 +1,11 @@
+package repositories
+
+import "errors"
+
+// Repository-layer error sentinels. These are distinct from service-level errors in internal/errors/.
+// Use WrapError() in postgres/ to map driver errors to these sentinels.
+var (
+	ErrRecordNotFound      = errors.New("record not found")
+	ErrDuplicateKey        = errors.New("duplicate key")
+	ErrForeignKeyViolation = errors.New("foreign key violation")
+)

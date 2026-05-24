@@ -1,0 +1,17 @@
+# DEVELOPMENT ONLY — do not use in CI or production.
+# Copy to docker-compose.override.yml (already in .gitignore) to enable hot reload.
+#
+# Requires Air: go install github.com/air-verse/air@latest
+# Air config: add a .air.toml at the project root (see https://github.com/air-verse/air).
+version: '3.8'
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+      - /app/tmp
+    command: air
+    environment:
+      - AIR_WD=/app

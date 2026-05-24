@@ -1,0 +1,90 @@
+package postgres
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/my-org/my-service/internal/models"
+	"github.com/my-org/my-service/internal/repositories"
+)
+
+type myServiceRepo struct {
+	db *DB
+}
+
+// NewMyServiceRepository creates a postgres-backed MyServiceRepository.
+func NewMyServiceRepository(db *DB) repositories.MyServiceRepository {
+	return &myServiceRepo{db: db}
+}
+
+func (r *myServiceRepo) Create(ctx context.Context, m *models.MyService) (*models.MyService, error) {
+	const q = `
+        INSERT INTO my_services (id, name, created_at, updated_at)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id, name, created_at, updated_at`
+	now := time.Now().UTC()
+	row := r.db.Pool.QueryRow(ctx, q, m.ID, m.Name, now, now)
+	created, err := ScanMyService(row)
+	return created, WrapError(err)
+}
+
+func (r *myServiceRepo) GetByID(ctx context.Context, id string) (*models.MyService, error) {
+	const q = `SELECT id, name, created_at, updated_at FROM my_services WHERE id = $1`
+	row := r.db.Pool.QueryRow(ctx, q, id)
+	m, err := ScanMyService(row)
+	return m, WrapError(err)
+}
+
+func (r *myServiceRepo) List(ctx context.Context, filter repositories.MyServiceFilter) ([]*models.MyService, int64, error) {
+	countQ := `SELECT COUNT(*) FROM my_services`
+	listQ := `SELECT id, name, created_at, updated_at FROM my_services`
+
+	listQ, args := BuildListQuery(listQ, filter, nil)
+
+	var total int64
+	if err := r.db.Pool.QueryRow(ctx, countQ).Scan(&total); err != nil {
+		return nil, 0, WrapError(err)
+	}
+
+	rows, err := r.db.Pool.Query(ctx, listQ, args...)
+	if err != nil {
+		return nil, 0, WrapError(err)
+	}
+	defer rows.Close()
+
+	var result []*models.MyService
+	for rows.Next() {
+		m, err := ScanMyService(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		result = append(result, m)
+	}
+	return result, total, rows.Err()
+}
+
+func (r *myServiceRepo) Update(ctx context.Context, m *models.MyService) (*models.MyService, error) {
+	const q = `
+        UPDATE my_services SET name = $1, updated_at = $2
+        WHERE id = $3
+        RETURNING id, name, created_at, updated_at`
+	row := r.db.Pool.QueryRow(ctx, q, m.Name, time.Now().UTC(), m.ID)
+	updated, err := ScanMyService(row)
+	if err != nil {
+		return nil, WrapError(err)
+	}
+	return updated, nil
+}
+
+func (r *myServiceRepo) Delete(ctx context.Context, id string) error {
+	const q = `DELETE FROM my_services WHERE id = $1`
+	ct, err := r.db.Pool.Exec(ctx, q, id)
+	if err != nil {
+		return WrapError(err)
+	}
+	if ct.RowsAffected() == 0 {
+		return fmt.Errorf("%w: id=%s", repositories.ErrRecordNotFound, id)
+	}
+	return nil
+}

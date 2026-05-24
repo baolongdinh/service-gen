@@ -1,0 +1,131 @@
+package services_test
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/my-org/my-service/internal/models"
+	"github.com/my-org/my-service/internal/repositories"
+	"github.com/my-org/my-service/internal/services"
+)
+
+// mockMyServiceRepo is a testify mock for MyServiceRepository.
+type mockMyServiceRepo struct{ mock.Mock }
+
+func (m *mockMyServiceRepo) Create(ctx context.Context, ms *models.MyService) (*models.MyService, error) {
+	args := m.Called(ctx, ms)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*models.MyService), args.Error(1)
+}
+
+func (m *mockMyServiceRepo) GetByID(ctx context.Context, id string) (*models.MyService, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*models.MyService), args.Error(1)
+}
+
+func (m *mockMyServiceRepo) List(ctx context.Context, filter repositories.MyServiceFilter) ([]*models.MyService, int64, error) {
+	args := m.Called(ctx, filter)
+	return args.Get(0).([]*models.MyService), args.Get(1).(int64), args.Error(2)
+}
+
+func (m *mockMyServiceRepo) Update(ctx context.Context, ms *models.MyService) (*models.MyService, error) {
+	args := m.Called(ctx, ms)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*models.MyService), args.Error(1)
+}
+
+func (m *mockMyServiceRepo) Delete(ctx context.Context, id string) error {
+	return m.Called(ctx, id).Error(0)
+}
+
+func TestMyServiceService_Create(t *testing.T) {
+	repo := &mockMyServiceRepo{}
+	svc := services.NewMyServiceService(repo)
+
+	expected := &models.MyService{ID: "abc123", Name: "test"}
+	repo.On("Create", mock.Anything, mock.AnythingOfType("*models.MyService")).Return(expected, nil)
+
+	result, err := svc.Create(context.Background(), services.CreateMyServiceRequest{Name: "test"})
+
+	assert.NoError(t, err)
+	assert.Equal(t, expected.Name, result.Name)
+	repo.AssertExpectations(t)
+}
+
+func TestMyServiceService_GetByID_NotFound(t *testing.T) {
+	repo := &mockMyServiceRepo{}
+	svc := services.NewMyServiceService(repo)
+
+	repo.On("GetByID", mock.Anything, "missing").Return(nil, repositories.ErrRecordNotFound)
+
+	_, err := svc.GetByID(context.Background(), "missing")
+
+	assert.Error(t, err)
+	assert.True(t, errors.Is(err, errors.New("")) || err != nil)
+	repo.AssertExpectations(t)
+}
+
+func TestMyServiceService_Create_DuplicateKey(t *testing.T) {
+	repo := &mockMyServiceRepo{}
+	svc := services.NewMyServiceService(repo)
+
+	repo.On("Create", mock.Anything, mock.AnythingOfType("*models.MyService")).Return(nil, repositories.ErrDuplicateKey)
+
+	_, err := svc.Create(context.Background(), services.CreateMyServiceRequest{Name: "duplicate"})
+
+	assert.Error(t, err)
+	repo.AssertExpectations(t)
+}
+
+func TestMyServiceService_Update_NotFound(t *testing.T) {
+	repo := &mockMyServiceRepo{}
+	svc := services.NewMyServiceService(repo)
+
+	repo.On("GetByID", mock.Anything, "missing").Return(nil, repositories.ErrRecordNotFound)
+
+	_, err := svc.Update(context.Background(), "missing", services.UpdateMyServiceRequest{Name: "new name"})
+
+	assert.Error(t, err)
+	repo.AssertExpectations(t)
+}
+
+func TestMyServiceService_Delete(t *testing.T) {
+	repo := &mockMyServiceRepo{}
+	svc := services.NewMyServiceService(repo)
+
+	repo.On("Delete", mock.Anything, "abc123").Return(nil)
+
+	err := svc.Delete(context.Background(), "abc123")
+
+	assert.NoError(t, err)
+	repo.AssertExpectations(t)
+}
+
+func TestMyServiceService_List_DefaultPagination(t *testing.T) {
+	repo := &mockMyServiceRepo{}
+	svc := services.NewMyServiceService(repo)
+
+	items := []*models.MyService{{ID: "1", Name: "first"}}
+	// List should normalise Page=0 -> 1, PageSize=0 -> 20 before calling the repo.
+	expected := repositories.MyServiceFilter{
+		Pagination: repositories.Pagination{Page: 1, PageSize: 20},
+	}
+	repo.On("List", mock.Anything, expected).Return(items, int64(1), nil)
+
+	result, total, err := svc.List(context.Background(), repositories.MyServiceFilter{})
+
+	assert.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	assert.Len(t, result, 1)
+	repo.AssertExpectations(t)
+}

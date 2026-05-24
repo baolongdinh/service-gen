@@ -1,0 +1,46 @@
+package cache
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+	"github.com/my-org/my-service/internal/config"
+)
+
+type redisCache struct {
+	client *redis.Client
+}
+
+// NewRedisCache creates a Redis-backed Cache from the given configuration.
+// The client is created eagerly but the connection is lazy — call Ping to
+// verify connectivity at startup.
+func NewRedisCache(cfg config.RedisConfig) Cache {
+	client := redis.NewClient(&redis.Options{
+		Addr:     cfg.Addr(),
+		Password: cfg.Password,
+		DB:       cfg.DB,
+	})
+	return &redisCache{client: client}
+}
+
+func (c *redisCache) Get(ctx context.Context, key string) (string, error) {
+	val, err := c.client.Get(ctx, key).Result()
+	if errors.Is(err, redis.Nil) {
+		return "", ErrCacheMiss
+	}
+	return val, err
+}
+
+func (c *redisCache) Set(ctx context.Context, key, value string, ttl time.Duration) error {
+	return c.client.Set(ctx, key, value, ttl).Err()
+}
+
+func (c *redisCache) Delete(ctx context.Context, key string) error {
+	return c.client.Del(ctx, key).Err()
+}
+
+func (c *redisCache) Ping(ctx context.Context) error {
+	return c.client.Ping(ctx).Err()
+}

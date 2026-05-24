@@ -1,0 +1,65 @@
+package eventbus
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sync"
+)
+
+// Handler processes a single domain event.
+type Handler func(ctx context.Context, event any) error
+
+// Bus is a synchronous, in-process domain event bus.
+//
+// Lifecycle:
+//   - Call Subscribe during application startup (before serving requests).
+//   - Call Publish from application services after persisting aggregates.
+//
+// Event type matching uses fmt.Sprintf("%T", event), e.g. "my_service.MyServiceCreated".
+// This means event type names are automatically correct after code generation.
+//
+// Thread safety: Subscribe uses a write lock; Publish uses a read lock.
+// Safe for concurrent use from request handlers.
+type Bus struct {
+	mu       sync.RWMutex
+	handlers map[string][]Handler
+}
+
+// New returns an initialized Bus with no registered handlers.
+func New() *Bus {
+	return &Bus{handlers: make(map[string][]Handler)}
+}
+
+// Subscribe registers a handler for the given event type name.
+// Use fmt.Sprintf("%T", YourEvent{}) to get the correct type name.
+// Example: "my_service.MyServiceCreated"
+func (b *Bus) Subscribe(eventTypeName string, h Handler) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.handlers[eventTypeName] = append(b.handlers[eventTypeName], h)
+}
+
+// Publish dispatches each event to all matching handlers synchronously.
+// All handler errors are collected and returned as a joined error.
+// Handlers are called in registration order.
+func (b *Bus) Publish(ctx context.Context, events []any) error {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	var errs []error
+	for _, e := range events {
+		name := fmt.Sprintf("%T", e)
+		for _, h := range b.handlers[name] {
+			if err := h(ctx, e); err != nil {
+				errs = append(errs, fmt.Errorf("%s handler: %w", name, err))
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// NoopBus satisfies EventPublisher interfaces but discards all events.
+// Use in tests that do not care about event dispatch.
+type NoopBus struct{}
+
+func (n *NoopBus) Publish(_ context.Context, _ []any) error { return nil }

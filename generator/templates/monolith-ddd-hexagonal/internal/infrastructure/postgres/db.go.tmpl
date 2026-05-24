@@ -1,0 +1,39 @@
+package postgres
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// DB wraps pgxpool.Pool for dependency injection and health checks.
+type DB struct {
+	Pool *pgxpool.Pool
+}
+
+// Connect creates and validates a connection pool from a DSN string.
+func Connect(ctx context.Context, dsn string) (*DB, error) {
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("parse dsn: %w", err)
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("create pool: %w", err)
+	}
+	if err := pool.Ping(ctx); err != nil {
+		return nil, fmt.Errorf("ping db: %w", err)
+	}
+	return &DB{Pool: pool}, nil
+}
+
+// Ping satisfies the handlers.Pinger interface for health checks.
+func (db *DB) Ping(ctx context.Context) error {
+	return db.Pool.Ping(ctx)
+}
+
+// Close releases all pool connections.
+func (db *DB) Close() {
+	db.Pool.Close()
+}

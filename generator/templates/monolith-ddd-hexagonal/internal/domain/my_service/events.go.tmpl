@@ -1,0 +1,18 @@
+package my_service
+
+// Domain events — plain structs, no infrastructure dependencies.
+// Dispatch via an event bus wired in the application layer.
+
+type MyServiceCreated struct {
+	ID   ID
+	Name string
+}
+
+type MyServiceRenamed struct {
+	ID   ID
+	Name string
+}
+
+type MyServiceDeleted struct {
+	ID ID
+}

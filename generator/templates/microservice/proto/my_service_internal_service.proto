@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package my-org.my_service.internal.v1;
+
+option go_package = "github.com/my-org/my-service/gen/proto/internal/v1;internalv1";
+
+// MyServiceInternalService is for internal RPC calls between services.
+// Add internal-only RPCs here; do not expose in the public service definition.
+service MyServiceInternalService {
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  string status = 1;
+}

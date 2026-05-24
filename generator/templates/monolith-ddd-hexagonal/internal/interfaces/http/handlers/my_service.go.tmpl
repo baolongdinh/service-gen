@@ -1,0 +1,99 @@
+package handlers
+
+import (
+	"encoding/json"
+	"errors"
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+
+	app "github.com/my-org/my-service/internal/application/my_service"
+	domain "github.com/my-org/my-service/internal/domain/my_service"
+	"github.com/my-org/my-service/pkg/httputil"
+	"github.com/my-org/my-service/pkg/logger"
+)
+
+// MyServiceHandler handles HTTP requests for the MyService bounded context.
+// It depends on app.UseCase (inbound port) — never on infrastructure directly.
+type MyServiceHandler struct {
+	uc  app.UseCase
+	log logger.Logger
+}
+
+func NewMyServiceHandler(uc app.UseCase, log logger.Logger) *MyServiceHandler {
+	return &MyServiceHandler{uc: uc, log: log}
+}
+
+func (h *MyServiceHandler) Create(w http.ResponseWriter, r *http.Request) {
+	var cmd app.CreateCommand
+	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
+		httputil.BadRequest(w, "invalid request body")
+		return
+	}
+	result, err := h.uc.Create(r.Context(), cmd)
+	if err != nil {
+		h.handleErr(w, err)
+		return
+	}
+	httputil.JSON(w, http.StatusCreated, result)
+}
+
+func (h *MyServiceHandler) GetByID(w http.ResponseWriter, r *http.Request) {
+	result, err := h.uc.GetByID(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		h.handleErr(w, err)
+		return
+	}
+	httputil.JSON(w, http.StatusOK, result)
+}
+
+func (h *MyServiceHandler) List(w http.ResponseWriter, r *http.Request) {
+	q := app.ListQuery{
+		Page:     1,
+		PageSize: 20,
+		NameLike: r.URL.Query().Get("name"),
+	}
+	result, err := h.uc.List(r.Context(), q)
+	if err != nil {
+		h.handleErr(w, err)
+		return
+	}
+	httputil.JSON(w, http.StatusOK, result)
+}
+
+func (h *MyServiceHandler) Update(w http.ResponseWriter, r *http.Request) {
+	var cmd app.UpdateCommand
+	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
+		httputil.BadRequest(w, "invalid request body")
+		return
+	}
+	cmd.ID = chi.URLParam(r, "id")
+	result, err := h.uc.Update(r.Context(), cmd)
+	if err != nil {
+		h.handleErr(w, err)
+		return
+	}
+	httputil.JSON(w, http.StatusOK, result)
+}
+
+func (h *MyServiceHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	if err := h.uc.Delete(r.Context(), chi.URLParam(r, "id")); err != nil {
+		h.handleErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *MyServiceHandler) handleErr(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, domain.ErrNotFound):
+		httputil.NotFound(w)
+	case errors.Is(err, domain.ErrDuplicate):
+		httputil.Error(w, http.StatusConflict, err.Error())
+	case errors.Is(err, domain.ErrInvalidName):
+		httputil.BadRequest(w, err.Error())
+	default:
+		h.log.Error("unhandled error", "error", err)
+		httputil.InternalServerError(w)
+	}
+}

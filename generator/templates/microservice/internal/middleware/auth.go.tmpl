@@ -1,0 +1,28 @@
+package middleware
+
+import (
+	"net/http"
+)
+
+// Auth is the authentication middleware stub.
+// Replace with real JWT/OAuth2 validation logic before going to production.
+//
+// On success: call next.ServeHTTP(w, r), optionally enriching r.Context()
+// with parsed claims (e.g. context.WithValue(r.Context(), claimsKey, claims)).
+//
+// On failure: write 401 and return WITHOUT calling next — never pass
+// unauthenticated requests down the chain.
+func Auth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// TODO: validate Bearer token, extract claims, add to context.
+		// Example:
+		//   token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		//   claims, err := jwt.Validate(token, signingKey)
+		//   if err != nil {
+		//       http.Error(w, "unauthorized", http.StatusUnauthorized)
+		//       return
+		//   }
+		//   r = r.WithContext(context.WithValue(r.Context(), claimsKey, claims))
+		next.ServeHTTP(w, r)
+	})
+}

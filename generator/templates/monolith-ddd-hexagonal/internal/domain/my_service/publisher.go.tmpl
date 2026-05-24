@@ -1,0 +1,12 @@
+package my_service
+
+import "context"
+
+// EventPublisher is the outbound port for dispatching domain events.
+// The concrete adapter is *eventbus.Bus from pkg/eventbus.
+//
+// Each bounded context declares its own EventPublisher so the domain
+// package has no dependency on pkg/eventbus (keeps domain pure).
+type EventPublisher interface {
+	Publish(ctx context.Context, events []any) error
+}

@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package my-org.my_service.v1;
+
+option go_package = "github.com/my-org/my-service/gen/proto/v1;myservicev1";
+
+import "google/protobuf/timestamp.proto";
+
+message MyServiceData {
+  string id   = 1;
+  string name = 2;
+  google.protobuf.Timestamp created_at = 3;
+  google.protobuf.Timestamp updated_at = 4;
+}

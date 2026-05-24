@@ -1,0 +1,105 @@
+package services
+
+import (
+	"context"
+	"fmt"
+
+	svcerr "github.com/my-org/my-service/internal/errors"
+	"github.com/my-org/my-service/internal/models"
+	"github.com/my-org/my-service/internal/repositories"
+)
+
+// MyServiceService defines business operations for MyService.
+// Add new operations here; implement in myServiceSvc below.
+type MyServiceService interface {
+	Create(ctx context.Context, req CreateMyServiceRequest) (*models.MyService, error)
+	GetByID(ctx context.Context, id string) (*models.MyService, error)
+	List(ctx context.Context, filter repositories.MyServiceFilter) ([]*models.MyService, int64, error)
+	Update(ctx context.Context, id string, req UpdateMyServiceRequest) (*models.MyService, error)
+	Delete(ctx context.Context, id string) error
+}
+
+type CreateMyServiceRequest struct {
+	Name string `validate:"required,min=1,max=255"`
+}
+
+type UpdateMyServiceRequest struct {
+	Name string `validate:"required,min=1,max=255"`
+}
+
+type myServiceSvc struct {
+	// Inject repository via interface, not concrete type. See constructor pattern.
+	repo repositories.MyServiceRepository
+}
+
+// NewMyServiceService creates a MyServiceService with the given repository.
+// Always inject the interface — this keeps services testable with mock repositories.
+func NewMyServiceService(repo repositories.MyServiceRepository) MyServiceService {
+	return &myServiceSvc{repo: repo}
+}
+
+func (s *myServiceSvc) Create(ctx context.Context, req CreateMyServiceRequest) (*models.MyService, error) {
+	m := &models.MyService{
+		ID:   newID(),
+		Name: req.Name,
+	}
+	created, err := s.repo.Create(ctx, m)
+	if err != nil {
+		return nil, mapRepoError(err, "create my_service")
+	}
+	return created, nil
+}
+
+func (s *myServiceSvc) GetByID(ctx context.Context, id string) (*models.MyService, error) {
+	m, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, mapRepoError(err, fmt.Sprintf("get my_service id=%s", id))
+	}
+	return m, nil
+}
+
+func (s *myServiceSvc) List(ctx context.Context, filter repositories.MyServiceFilter) ([]*models.MyService, int64, error) {
+	if filter.PageSize <= 0 {
+		filter.PageSize = 20
+	}
+	if filter.Page <= 0 {
+		filter.Page = 1
+	}
+	return s.repo.List(ctx, filter)
+}
+
+func (s *myServiceSvc) Update(ctx context.Context, id string, req UpdateMyServiceRequest) (*models.MyService, error) {
+	existing, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, mapRepoError(err, fmt.Sprintf("get my_service id=%s for update", id))
+	}
+	existing.Name = req.Name
+	updated, err := s.repo.Update(ctx, existing)
+	if err != nil {
+		return nil, mapRepoError(err, fmt.Sprintf("update my_service id=%s", id))
+	}
+	return updated, nil
+}
+
+func (s *myServiceSvc) Delete(ctx context.Context, id string) error {
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return mapRepoError(err, fmt.Sprintf("delete my_service id=%s", id))
+	}
+	return nil
+}
+
+// mapRepoError translates repository-layer errors to service-layer errors.
+// Repositories speak in database terms; services speak in domain terms.
+func mapRepoError(err error, op string) error {
+	if err == nil {
+		return nil
+	}
+	switch {
+	case err == repositories.ErrRecordNotFound:
+		return svcerr.NotFound(fmt.Sprintf("my_service not found (%s)", op))
+	case err == repositories.ErrDuplicateKey:
+		return svcerr.AlreadyExists(fmt.Sprintf("my_service already exists (%s)", op))
+	default:
+		return svcerr.Internal(fmt.Sprintf("my_service operation failed (%s)", op), err)
+	}
+}

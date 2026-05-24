@@ -1,0 +1,78 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/my-org/my-service/internal/cache"
+	"github.com/my-org/my-service/internal/config"
+	"github.com/my-org/my-service/internal/handler"
+	"github.com/my-org/my-service/internal/must"
+	"github.com/my-org/my-service/internal/repositories/postgres"
+	"github.com/my-org/my-service/internal/services"
+	"github.com/my-org/my-service/pkg/logger"
+)
+
+func main() {
+	// 1. Load configuration from environment variables.
+	cfg, err := config.Load()
+	must.NoError(err)
+
+	// 2. Initialise structured logger (JSON in production, text in dev).
+	log := logger.New(cfg.Log.Level, cfg.Log.Format)
+
+	ctx := context.Background()
+
+	// 3. Connect to PostgreSQL. Pool is closed in the deferred statement below.
+	db, err := postgres.Connect(ctx, cfg.Database)
+	must.NoError(err)
+	defer db.Pool.Close()
+
+	// 4. Connect to Redis cache. *pgxpool.Pool and *redis.Client both satisfy
+	//    handler.Pinger via their Ping(context.Context) error method — no wrapper
+	//    needed.
+	redisCache := cache.NewRedisCache(cfg.Redis)
+
+	// 5. Wire repositories → services → handler (outermost layer last).
+	myServiceRepo := postgres.NewMyServiceRepository(db)
+	myServiceSvc := services.NewMyServiceService(myServiceRepo)
+
+	// db.Pool (*pgxpool.Pool) satisfies handler.Pinger directly.
+	router := handler.New(myServiceSvc, db.Pool, redisCache, log)
+
+	// 6. Configure HTTP server with production-safe timeouts.
+	srv := &http.Server{
+		Addr:         fmt.Sprintf(":%d", cfg.App.Port),
+		Handler:      router,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	// 7. Start server in background goroutine.
+	go func() {
+		log.Info("server starting", "addr", srv.Addr, "env", cfg.App.Env)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Error("server error", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	// 8. Block until SIGINT or SIGTERM.
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	// 9. Graceful shutdown: allow in-flight requests up to 30 s.
+	log.Info("shutting down gracefully...")
+	shutCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutCtx); err != nil {
+		log.Error("shutdown error", "error", err)
+	}
+}

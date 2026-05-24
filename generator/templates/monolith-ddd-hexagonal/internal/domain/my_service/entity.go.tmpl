@@ -1,0 +1,58 @@
+package my_service
+
+import "time"
+
+// MyService is the aggregate root for this bounded context.
+// All state changes go through methods — no public fields.
+type MyService struct {
+	id        ID
+	name      string
+	createdAt time.Time
+	updatedAt time.Time
+	events    []any
+}
+
+// ID is the my_service value object identifier.
+type ID string
+
+func (id ID) String() string { return string(id) }
+
+// NewMyService creates a validated MyService aggregate and raises MyServiceCreated.
+func NewMyService(id ID, name string) (*MyService, error) {
+	if name == "" {
+		return nil, ErrInvalidName
+	}
+	now := time.Now().UTC()
+	ms := &MyService{id: id, name: name, createdAt: now, updatedAt: now}
+	ms.events = append(ms.events, MyServiceCreated{ID: id, Name: name})
+	return ms, nil
+}
+
+// Reconstruct rebuilds an aggregate from persisted data without raising events.
+// Used exclusively by repository implementations.
+func Reconstruct(id ID, name string, createdAt, updatedAt time.Time) *MyService {
+	return &MyService{id: id, name: name, createdAt: createdAt, updatedAt: updatedAt}
+}
+
+func (m *MyService) ID() ID               { return m.id }
+func (m *MyService) Name() string         { return m.name }
+func (m *MyService) CreatedAt() time.Time { return m.createdAt }
+func (m *MyService) UpdatedAt() time.Time { return m.updatedAt }
+
+// Rename changes the name and raises MyServiceRenamed.
+func (m *MyService) Rename(name string) error {
+	if name == "" {
+		return ErrInvalidName
+	}
+	m.name = name
+	m.updatedAt = time.Now().UTC()
+	m.events = append(m.events, MyServiceRenamed{ID: m.id, Name: name})
+	return nil
+}
+
+// PopEvents returns and clears all pending domain events.
+func (m *MyService) PopEvents() []any {
+	events := m.events
+	m.events = nil
+	return events
+}

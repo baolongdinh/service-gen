@@ -1,0 +1,20 @@
+// Package must provides startup-only helpers that panic on failure.
+// ONLY use these in main() and TestMain() — never in request-handling code.
+// Using must in request handlers will crash the entire service.
+package must
+
+import "fmt"
+
+// NoError panics with a descriptive message if err is non-nil.
+func NoError(err error) {
+	if err != nil {
+		panic(fmt.Sprintf("must: unexpected error: %v", err))
+	}
+}
+
+// NotNil panics if v is nil.
+func NotNil(v any, name string) {
+	if v == nil {
+		panic(fmt.Sprintf("must: %s must not be nil", name))
+	}
+}

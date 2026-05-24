@@ -1,0 +1,13 @@
+package models
+
+import "time"
+
+// MyService is the example domain model. Rename to your actual entity.
+// Models are plain structs — no DB or JSON tags here.
+// DB column mapping belongs in repositories/postgres/; JSON in handler/.
+type MyService struct {
+	ID        string
+	Name      string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}

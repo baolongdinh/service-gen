@@ -1,0 +1,56 @@
+package errors
+
+import (
+	stderrors "errors"
+	"fmt"
+)
+
+type Code string
+
+const (
+	CodeNotFound      Code = "NOT_FOUND"
+	CodeAlreadyExists Code = "ALREADY_EXISTS"
+	CodeUnauthorized  Code = "UNAUTHORIZED"
+	CodeInvalidInput  Code = "INVALID_INPUT"
+	CodeInternal      Code = "INTERNAL"
+)
+
+type ServiceError struct {
+	Code    Code
+	Message string
+	Cause   error
+}
+
+func (e *ServiceError) Error() string {
+	if e.Cause != nil {
+		return fmt.Sprintf("[%s] %s: %v", e.Code, e.Message, e.Cause)
+	}
+	return fmt.Sprintf("[%s] %s", e.Code, e.Message)
+}
+
+func (e *ServiceError) Unwrap() error { return e.Cause }
+
+func NotFound(msg string) error {
+	return &ServiceError{Code: CodeNotFound, Message: msg}
+}
+func AlreadyExists(msg string) error {
+	return &ServiceError{Code: CodeAlreadyExists, Message: msg}
+}
+func Unauthorized(msg string) error {
+	return &ServiceError{Code: CodeUnauthorized, Message: msg}
+}
+func InvalidInput(msg string, cause error) error {
+	return &ServiceError{Code: CodeInvalidInput, Message: msg, Cause: cause}
+}
+func Internal(msg string, cause error) error {
+	return &ServiceError{Code: CodeInternal, Message: msg, Cause: cause}
+}
+
+// IsCode checks whether err is a ServiceError with the given code.
+func IsCode(err error, code Code) bool {
+	var svcErr *ServiceError
+	if stderrors.As(err, &svcErr) {
+		return svcErr.Code == code
+	}
+	return false
+}

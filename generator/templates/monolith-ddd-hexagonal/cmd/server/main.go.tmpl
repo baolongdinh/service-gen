@@ -1,0 +1,122 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+
+	appms "github.com/my-org/my-service/internal/application/my_service"
+	"github.com/my-org/my-service/internal/application/subscriber"
+	"github.com/my-org/my-service/internal/infrastructure/postgres"
+	"github.com/my-org/my-service/internal/interfaces/http/handlers"
+	httpserver "github.com/my-org/my-service/internal/interfaces/http"
+	"github.com/my-org/my-service/config"
+	"github.com/my-org/my-service/pkg/eventbus"
+	"github.com/my-org/my-service/pkg/logger"
+	"github.com/my-org/my-service/pkg/must"
+)
+
+func main() {
+	cfg, err := config.Load()
+	must.NoError(err)
+
+	log := logger.New(cfg.Log.Level, cfg.Log.Format)
+	ctx := context.Background()
+
+	// ── Outbound infrastructure ───────────────────────────────────────────────
+
+	db, err := postgres.Connect(ctx, cfg.Database.DSN())
+	must.NoError(err)
+	defer db.Close()
+
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     cfg.Redis.Addr(),
+		Password: cfg.Redis.Password,
+		DB:       cfg.Redis.DB,
+	})
+	defer redisClient.Close()
+
+	// ── Event bus ────────────────────────────────────────────────────────────
+	//
+	// The bus dispatches domain events between bounded contexts (in-process).
+	// All subscriptions are registered here, before the server starts.
+	//
+	// Adding a new bounded context:
+	//  1. Create the context's repo, use case (see wiring section below).
+	//  2. Pass the use case to the subscriber registration function.
+	//  3. Add subscriber.RegisterNewContextSubscribers(bus, newContextUC, log).
+
+	bus := eventbus.New()
+
+	// Register cross-context event handlers.
+	// Each RegisterXxxSubscribers call wires one context's reactions to another's events.
+	subscriber.RegisterMyServiceSubscribers(bus, log)
+	// subscriber.RegisterOrderSubscribers(bus, orderUC, log)   ← add new contexts here
+
+	// ── Bounded contexts: infra adapter → application layer ──────────────────
+	//
+	// Pattern per bounded context:
+	//   repo  := postgres.NewXxxRepository(db)
+	//   xxxSvc := appxxx.New(repo, bus, log)
+	//
+	// For sync cross-context calls, inject the target UseCase as an extra arg:
+	//   orderSvc := apporder.New(orderRepo, bus, myServiceSvc, log)
+
+	myServiceSvc := appms.New(
+		postgres.NewMyServiceRepository(db),
+		bus, // EventPublisher outbound port → dispatches to registered subscribers
+		log,
+	)
+
+	// ── Inbound adapters: application layer → HTTP interface ──────────────────
+	//
+	// Add new bounded contexts by extending Config with their UseCase.
+
+	router := httpserver.NewRouter(httpserver.Config{
+		MyServiceUseCase: myServiceSvc,
+		// OrderUseCase: orderSvc,   ← add new contexts here
+		DB:    db,
+		Cache: &redisPingerAdapter{c: redisClient},
+		Log:   log,
+	})
+
+	srv := &http.Server{
+		Addr:         fmt.Sprintf(":%d", cfg.App.Port),
+		Handler:      router,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	go func() {
+		log.Info("server starting", "addr", srv.Addr, "env", cfg.App.Env)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Error("server error", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Info("shutting down server")
+	shutCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(shutCtx)
+}
+
+// redisPingerAdapter wraps *redis.Client to satisfy handlers.Pinger.
+type redisPingerAdapter struct{ c *redis.Client }
+
+func (r *redisPingerAdapter) Ping(ctx context.Context) error {
+	return r.c.Ping(ctx).Err()
+}
+
+var _ handlers.Pinger = (*redisPingerAdapter)(nil)

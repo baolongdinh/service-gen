@@ -1,0 +1,41 @@
+package handler
+
+import (
+	"context"
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/my-org/my-service/internal/middleware"
+	"github.com/my-org/my-service/internal/services"
+	"github.com/my-org/my-service/pkg/logger"
+)
+
+// Pinger is satisfied by *pgxpool.Pool (db.Ping) and *redis.Client (client.Ping).
+// Any dependency that exposes a health-check Ping method satisfies this interface.
+type Pinger interface {
+	Ping(ctx context.Context) error
+}
+
+// New creates the chi router with all middleware and routes registered.
+// db and cache are checked by the /health endpoint; svc handles business logic.
+func New(svc services.MyServiceService, db Pinger, cache Pinger, log logger.Logger) http.Handler {
+	r := chi.NewRouter()
+
+	// Core middleware — order matters: RequestID first, then RealIP, then logging.
+	r.Use(chimw.RequestID)
+	r.Use(chimw.RealIP)
+	r.Use(middleware.RequestLogger(log))
+	r.Use(middleware.Recovery(log))
+
+	// Health check is unauthenticated — must be outside the /api/v1 group.
+	r.Get("/health", HealthHandler(db, cache))
+
+	// All API routes require authentication.
+	r.Route("/api/v1", func(r chi.Router) {
+		r.Use(middleware.Auth)
+		RegisterMyServiceRoutes(r, svc, log)
+	})
+
+	return r
+}

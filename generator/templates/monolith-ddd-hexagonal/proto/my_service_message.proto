@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package my-org.my_service.v1;
+
+option go_package = "github.com/my-org/my-service/gen/proto/v1;myservicev1";
+
+import "google/protobuf/timestamp.proto";
+import "my_service_data.proto";
+
+message CreateMyServiceRequest {
+  string name = 1;
+}
+
+message CreateMyServiceResponse {
+  MyServiceData my_service = 1;
+}
+
+message GetMyServiceRequest {
+  string id = 1;
+}
+
+message GetMyServiceResponse {
+  MyServiceData my_service = 1;
+}
+
+message ListMyServicesRequest {
+  int32 page      = 1;
+  int32 page_size = 2;
+}
+
+message ListMyServicesResponse {
+  repeated MyServiceData my_services = 1;
+  int64 total = 2;
+}
+
+message UpdateMyServiceRequest {
+  string id   = 1;
+  string name = 2;
+}
+
+message UpdateMyServiceResponse {
+  MyServiceData my_service = 1;
+}
+
+message DeleteMyServiceRequest {
+  string id = 1;
+}
+
+message DeleteMyServiceResponse {}

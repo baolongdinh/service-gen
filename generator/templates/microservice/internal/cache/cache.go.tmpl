@@ -1,0 +1,27 @@
+package cache
+
+import (
+	"context"
+	"time"
+)
+
+// Cache defines the caching interface.
+// Inject this into services that need caching — never inject a concrete type.
+// Two implementations ship with the service:
+//   - NewMemoryCache — for tests and local development (no external dependency)
+//   - NewRedisCache  — for production (requires a running Redis instance)
+type Cache interface {
+	Get(ctx context.Context, key string) (string, error)
+	Set(ctx context.Context, key string, value string, ttl time.Duration) error
+	Delete(ctx context.Context, key string) error
+	Ping(ctx context.Context) error
+}
+
+// ErrCacheMiss is returned by Get when the key does not exist or has expired.
+// Callers should check for this specific error rather than treating all errors
+// as fatal: `if errors.Is(err, cache.ErrCacheMiss) { /* fetch from DB */ }`.
+var ErrCacheMiss = cacheError("cache miss")
+
+type cacheError string
+
+func (e cacheError) Error() string { return string(e) }

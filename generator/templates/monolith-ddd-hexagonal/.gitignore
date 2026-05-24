@@ -1,0 +1,44 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+my-service
+
+# Test binary
+*.test
+*.out
+
+# Go workspace
+vendor/
+go.work
+go.work.sum
+
+# Env files
+.env
+*.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# macOS
+.DS_Store
+
+# Docker override (dev only)
+docker-compose.override.yml
+
+# Air (hot reload)
+tmp/
+
+# Generated proto code
+gen/
+
+# Build output
+dist/
+build/

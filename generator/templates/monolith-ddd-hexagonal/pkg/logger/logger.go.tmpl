@@ -1,0 +1,68 @@
+package logger
+
+import (
+	"context"
+	"log/slog"
+	"os"
+)
+
+// Logger is the service-wide logging interface. Inject this; never call slog directly.
+type Logger interface {
+	Debug(msg string, args ...any)
+	Info(msg string, args ...any)
+	Warn(msg string, args ...any)
+	Error(msg string, args ...any)
+	With(args ...any) Logger
+}
+
+type slogLogger struct {
+	inner *slog.Logger
+}
+
+func New(level, format string) Logger {
+	var lvl slog.Level
+	switch level {
+	case "debug":
+		lvl = slog.LevelDebug
+	case "warn":
+		lvl = slog.LevelWarn
+	case "error":
+		lvl = slog.LevelError
+	default:
+		lvl = slog.LevelInfo
+	}
+
+	opts := &slog.HandlerOptions{Level: lvl}
+	var handler slog.Handler
+	if format == "json" {
+		handler = slog.NewJSONHandler(os.Stdout, opts)
+	} else {
+		handler = slog.NewTextHandler(os.Stdout, opts)
+	}
+	return &slogLogger{inner: slog.New(handler)}
+}
+
+func (l *slogLogger) Debug(msg string, args ...any) { l.inner.Debug(msg, args...) }
+func (l *slogLogger) Info(msg string, args ...any)  { l.inner.Info(msg, args...) }
+func (l *slogLogger) Warn(msg string, args ...any)  { l.inner.Warn(msg, args...) }
+func (l *slogLogger) Error(msg string, args ...any) { l.inner.Error(msg, args...) }
+
+func (l *slogLogger) With(args ...any) Logger {
+	return &slogLogger{inner: l.inner.With(args...)}
+}
+
+// FromContext returns a no-op logger; extend to pull from context.Context if needed.
+func FromContext(_ context.Context) Logger {
+	return New("info", "text")
+}
+
+// NewNoop returns a logger that discards all output — useful in tests.
+func NewNoop() Logger { return &noopLogger{} }
+
+type noopLogger struct{}
+
+func (l *noopLogger) Debug(_ string, _ ...any) {}
+func (l *noopLogger) Info(_ string, _ ...any)  {}
+func (l *noopLogger) Warn(_ string, _ ...any)  {}
+func (l *noopLogger) Error(_ string, _ ...any) {}
+func (l *noopLogger) With(_ ...any) Logger     { return l }

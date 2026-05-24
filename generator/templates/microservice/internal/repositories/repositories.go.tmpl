@@ -1,0 +1,17 @@
+package repositories
+
+import (
+	"context"
+	"github.com/my-org/my-service/internal/models"
+)
+
+// MyServiceRepository defines the data access contract for MyService entities.
+// Add new methods here; implement in repositories/postgres/my_service_repository.go.
+// Never import repositories/postgres directly from services or handlers — use this interface.
+type MyServiceRepository interface {
+	Create(ctx context.Context, m *models.MyService) (*models.MyService, error)
+	GetByID(ctx context.Context, id string) (*models.MyService, error)
+	List(ctx context.Context, filter MyServiceFilter) ([]*models.MyService, int64, error)
+	Update(ctx context.Context, m *models.MyService) (*models.MyService, error)
+	Delete(ctx context.Context, id string) error
+}

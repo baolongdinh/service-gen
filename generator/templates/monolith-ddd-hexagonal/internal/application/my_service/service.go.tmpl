@@ -1,0 +1,114 @@
+package my_service
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+
+	domain "github.com/my-org/my-service/internal/domain/my_service"
+	"github.com/my-org/my-service/pkg/logger"
+)
+
+type service struct {
+	repo      domain.Repository
+	publisher domain.EventPublisher
+	log       logger.Logger
+}
+
+// New returns a UseCase backed by the given outbound ports.
+//
+// To add a dependency on another bounded context (sync call pattern):
+//
+//	func New(repo domain.Repository, publisher domain.EventPublisher,
+//	         orderUC order.UseCase,  // ← inject target context's UseCase
+//	         log logger.Logger) UseCase { ... }
+func New(repo domain.Repository, publisher domain.EventPublisher, log logger.Logger) UseCase {
+	return &service{repo: repo, publisher: publisher, log: log}
+}
+
+func (s *service) Create(ctx context.Context, cmd CreateCommand) (*MyServiceResult, error) {
+	id := domain.ID(newID())
+	ms, err := domain.NewMyService(id, cmd.Name)
+	if err != nil {
+		return nil, fmt.Errorf("create my_service: %w", err)
+	}
+	if err := s.repo.Save(ctx, ms); err != nil {
+		return nil, fmt.Errorf("save my_service: %w", err)
+	}
+	s.publish(ctx, ms.PopEvents())
+	return toResult(ms), nil
+}
+
+func (s *service) GetByID(ctx context.Context, id string) (*MyServiceResult, error) {
+	ms, err := s.repo.FindByID(ctx, domain.ID(id))
+	if err != nil {
+		return nil, err
+	}
+	return toResult(ms), nil
+}
+
+func (s *service) List(ctx context.Context, q ListQuery) (*ListResult, error) {
+	if q.PageSize <= 0 {
+		q.PageSize = 20
+	}
+	if q.Page <= 0 {
+		q.Page = 1
+	}
+	spec := domain.Specification{Page: q.Page, PageSize: q.PageSize, NameLike: q.NameLike}
+	items, total, err := s.repo.FindAll(ctx, spec)
+	if err != nil {
+		return nil, fmt.Errorf("list my_services: %w", err)
+	}
+	results := make([]*MyServiceResult, len(items))
+	for i, ms := range items {
+		results[i] = toResult(ms)
+	}
+	return &ListResult{Items: results, Total: total}, nil
+}
+
+func (s *service) Update(ctx context.Context, cmd UpdateCommand) (*MyServiceResult, error) {
+	ms, err := s.repo.FindByID(ctx, domain.ID(cmd.ID))
+	if err != nil {
+		return nil, err
+	}
+	if err := ms.Rename(cmd.Name); err != nil {
+		return nil, fmt.Errorf("rename my_service: %w", err)
+	}
+	if err := s.repo.Save(ctx, ms); err != nil {
+		return nil, fmt.Errorf("save updated my_service: %w", err)
+	}
+	s.publish(ctx, ms.PopEvents())
+	return toResult(ms), nil
+}
+
+func (s *service) Delete(ctx context.Context, id string) error {
+	domainID := domain.ID(id)
+	if err := s.repo.Delete(ctx, domainID); err != nil {
+		return fmt.Errorf("delete my_service: %w", err)
+	}
+	// Dispatch deleted event directly — no need to reload the aggregate for a hard delete.
+	s.publish(ctx, []any{domain.MyServiceDeleted{ID: domainID}})
+	return nil
+}
+
+// publish dispatches domain events and logs errors without failing the request.
+// Event dispatch is non-fatal for an in-process bus — the aggregate is already persisted.
+// For transactional guarantees, switch to the Transactional Outbox pattern:
+// store events in the same DB transaction, then relay asynchronously.
+func (s *service) publish(ctx context.Context, events []any) {
+	if len(events) == 0 {
+		return
+	}
+	if err := s.publisher.Publish(ctx, events); err != nil {
+		s.log.Error("event dispatch failed", "error", err)
+	}
+}
+
+func newID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("newID: %v", err))
+	}
+	return hex.EncodeToString(b)
+}

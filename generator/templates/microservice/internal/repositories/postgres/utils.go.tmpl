@@ -1,0 +1,57 @@
+package postgres
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/my-org/my-service/internal/models"
+	"github.com/my-org/my-service/internal/repositories"
+)
+
+// BuildListQuery appends WHERE, ORDER BY, LIMIT, OFFSET clauses to baseQuery.
+// Returns the modified query and args slice.
+func BuildListQuery(baseQuery string, filter repositories.MyServiceFilter, args []any) (string, []any) {
+	var where []string
+	argIdx := len(args) + 1
+
+	if filter.NameLike != "" {
+		where = append(where, fmt.Sprintf("name ILIKE $%d", argIdx))
+		args = append(args, "%"+filter.NameLike+"%")
+		argIdx++
+	}
+
+	if len(where) > 0 {
+		baseQuery += " WHERE " + strings.Join(where, " AND ")
+	}
+
+	field := "created_at"
+	if filter.Sort.Field != "" {
+		field = filter.Sort.Field
+	}
+	dir := "DESC"
+	if filter.Sort.Ascending {
+		dir = "ASC"
+	}
+	baseQuery += fmt.Sprintf(" ORDER BY %s %s", field, dir)
+
+	pageSize := filter.PageSize
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	baseQuery += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
+	args = append(args, pageSize, filter.Offset())
+
+	return baseQuery, args
+}
+
+// ScanMyService reads one row into a MyService model.
+func ScanMyService(row interface {
+	Scan(dest ...any) error
+}) (*models.MyService, error) {
+	m := &models.MyService{}
+	err := row.Scan(&m.ID, &m.Name, &m.CreatedAt, &m.UpdatedAt)
+	if err != nil {
+		return nil, WrapError(err)
+	}
+	return m, nil
+}

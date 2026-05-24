@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package my-org.my_service.v1;
+
+option go_package = "github.com/my-org/my-service/gen/proto/v1;myservicev1";
+
+import "my_service_message.proto";
+
+service MyServiceService {
+  rpc CreateMyService(CreateMyServiceRequest) returns (CreateMyServiceResponse);
+  rpc GetMyService(GetMyServiceRequest) returns (GetMyServiceResponse);
+  rpc ListMyServices(ListMyServicesRequest) returns (ListMyServicesResponse);
+  rpc UpdateMyService(UpdateMyServiceRequest) returns (UpdateMyServiceResponse);
+  rpc DeleteMyService(DeleteMyServiceRequest) returns (DeleteMyServiceResponse);
+}

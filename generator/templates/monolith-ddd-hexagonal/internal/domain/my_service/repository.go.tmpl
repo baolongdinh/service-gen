@@ -1,0 +1,20 @@
+package my_service
+
+import "context"
+
+// Repository is the outbound port for persisting MyService aggregates.
+// The concrete adapter lives in internal/infrastructure/postgres.
+// Add new bounded contexts by creating a sibling interface here.
+type Repository interface {
+	Save(ctx context.Context, ms *MyService) error
+	FindByID(ctx context.Context, id ID) (*MyService, error)
+	FindAll(ctx context.Context, spec Specification) ([]*MyService, int, error)
+	Delete(ctx context.Context, id ID) error
+}
+
+// Specification carries query criteria for FindAll.
+type Specification struct {
+	Page     int
+	PageSize int
+	NameLike string
+}

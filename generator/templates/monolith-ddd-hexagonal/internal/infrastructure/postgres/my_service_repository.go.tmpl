@@ -1,0 +1,122 @@
+package postgres
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+
+	domain "github.com/my-org/my-service/internal/domain/my_service"
+)
+
+// MyServiceRepository implements domain.Repository using PostgreSQL.
+// To add a new bounded context: create a sibling file e.g. order_repository.go.
+type MyServiceRepository struct {
+	db *DB
+}
+
+// NewMyServiceRepository returns a domain.Repository backed by PostgreSQL.
+func NewMyServiceRepository(db *DB) domain.Repository {
+	return &MyServiceRepository{db: db}
+}
+
+func (r *MyServiceRepository) Save(ctx context.Context, ms *domain.MyService) error {
+	_, err := r.db.Pool.Exec(ctx, `
+		INSERT INTO my_services (id, name, created_at, updated_at)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (id) DO UPDATE
+		SET name       = EXCLUDED.name,
+		    updated_at = EXCLUDED.updated_at
+	`, ms.ID().String(), ms.Name(), ms.CreatedAt(), ms.UpdatedAt())
+	return wrapMyServiceErr(err)
+}
+
+func (r *MyServiceRepository) FindByID(ctx context.Context, id domain.ID) (*domain.MyService, error) {
+	row := r.db.Pool.QueryRow(ctx, `
+		SELECT id, name, created_at, updated_at
+		FROM my_services
+		WHERE id = $1
+	`, id.String())
+
+	ms, err := scanMyService(row)
+	return ms, wrapMyServiceErr(err)
+}
+
+func (r *MyServiceRepository) FindAll(ctx context.Context, spec domain.Specification) ([]*domain.MyService, int, error) {
+	offset := (spec.Page - 1) * spec.PageSize
+
+	var total int
+	if err := r.db.Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM my_services WHERE ($1 = '' OR name ILIKE '%' || $1 || '%')`,
+		spec.NameLike,
+	).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count my_services: %w", err)
+	}
+
+	rows, err := r.db.Pool.Query(ctx, `
+		SELECT id, name, created_at, updated_at
+		FROM my_services
+		WHERE ($1 = '' OR name ILIKE '%' || $1 || '%')
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
+	`, spec.NameLike, spec.PageSize, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("query my_services: %w", err)
+	}
+	defer rows.Close()
+
+	var result []*domain.MyService
+	for rows.Next() {
+		ms, err := scanMyService(rows)
+		if err != nil {
+			return nil, 0, fmt.Errorf("scan my_service: %w", err)
+		}
+		result = append(result, ms)
+	}
+	return result, total, rows.Err()
+}
+
+func (r *MyServiceRepository) Delete(ctx context.Context, id domain.ID) error {
+	tag, err := r.db.Pool.Exec(ctx,
+		`DELETE FROM my_services WHERE id = $1`,
+		id.String(),
+	)
+	if err != nil {
+		return wrapMyServiceErr(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+type scanner interface{ Scan(dest ...any) error }
+
+func scanMyService(row scanner) (*domain.MyService, error) {
+	var (
+		id, name             string
+		createdAt, updatedAt time.Time
+	)
+	if err := row.Scan(&id, &name, &createdAt, &updatedAt); err != nil {
+		return nil, err
+	}
+	return domain.Reconstruct(domain.ID(id), name, createdAt, updatedAt), nil
+}
+
+// wrapMyServiceErr maps pgx errors to domain sentinel errors for this context.
+func wrapMyServiceErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ErrNotFound
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return domain.ErrDuplicate
+	}
+	return err
+}

@@ -1,0 +1,52 @@
+package http
+
+import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	chimw "github.com/go-chi/chi/v5/middleware"
+
+	app "github.com/my-org/my-service/internal/application/my_service"
+	"github.com/my-org/my-service/internal/interfaces/http/handlers"
+	"github.com/my-org/my-service/internal/interfaces/http/middleware"
+	"github.com/my-org/my-service/pkg/logger"
+)
+
+// Config carries all dependencies the router needs.
+// Each bounded context adds its UseCase here and registers routes below.
+type Config struct {
+	MyServiceUseCase app.UseCase
+	DB               handlers.Pinger
+	Cache            handlers.Pinger
+	Log              logger.Logger
+}
+
+// NewRouter builds the chi router with all routes and middleware.
+func NewRouter(cfg Config) http.Handler {
+	r := chi.NewRouter()
+
+	r.Use(chimw.RequestID)
+	r.Use(chimw.RealIP)
+	r.Use(middleware.RequestLogger(cfg.Log))
+	r.Use(middleware.Recovery(cfg.Log))
+
+	// Health check — no auth required
+	r.Get("/health", handlers.Health(cfg.DB, cfg.Cache))
+
+	r.Route("/api/v1", func(r chi.Router) {
+		r.Use(middleware.Auth)
+
+		// MyService bounded context
+		// To add a new bounded context: inject its UseCase in Config and register routes here.
+		ms := handlers.NewMyServiceHandler(cfg.MyServiceUseCase, cfg.Log)
+		r.Route("/my_services", func(r chi.Router) {
+			r.Post("/", ms.Create)
+			r.Get("/", ms.List)
+			r.Get("/{id}", ms.GetByID)
+			r.Put("/{id}", ms.Update)
+			r.Delete("/{id}", ms.Delete)
+		})
+	})
+
+	return r
+}

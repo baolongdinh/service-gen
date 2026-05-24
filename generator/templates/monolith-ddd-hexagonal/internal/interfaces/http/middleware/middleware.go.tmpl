@@ -1,0 +1,56 @@
+package middleware
+
+import (
+	"net/http"
+	"time"
+
+	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/my-org/my-service/pkg/logger"
+)
+
+// RequestLogger logs method, path, status, and duration for every request.
+func RequestLogger(log logger.Logger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			ww := chimw.NewWrapResponseWriter(w, r.ProtoMajor)
+			next.ServeHTTP(ww, r)
+			log.Info("request",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"status", ww.Status(),
+				"duration", time.Since(start).String(),
+				"request_id", chimw.GetReqID(r.Context()),
+			)
+		})
+	}
+}
+
+// Auth validates the Bearer token and injects claims into the context.
+// Replace the stub with real JWT validation for production use.
+func Auth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// TODO: parse and validate Authorization: Bearer <token>
+		// Extract claims and store in context, e.g.:
+		//   token := r.Header.Get("Authorization")
+		//   claims, err := jwtutil.Parse(token)
+		//   if err != nil { httputil.Unauthorized(w); return }
+		//   r = r.WithContext(context.WithValue(r.Context(), ctxKeyClaims, claims))
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Recovery catches panics and returns a 500 without crashing the server.
+func Recovery(log logger.Logger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer func() {
+				if rec := recover(); rec != nil {
+					log.Error("panic recovered", "panic", rec)
+					http.Error(w, "internal server error", http.StatusInternalServerError)
+				}
+			}()
+			next.ServeHTTP(w, r)
+		})
+	}
+}

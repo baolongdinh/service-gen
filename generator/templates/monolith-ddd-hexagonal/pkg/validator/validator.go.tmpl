@@ -1,0 +1,33 @@
+package validator
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/go-playground/validator/v10"
+)
+
+var v = validator.New()
+
+// ValidationError wraps validation failures into a user-friendly message.
+type ValidationError struct {
+	Field   string
+	Message string
+}
+
+func (e ValidationError) Error() string {
+	return fmt.Sprintf("field %q: %s", e.Field, e.Message)
+}
+
+// Validate validates a struct using go-playground/validator tags.
+// Returns a joined error string of all field violations.
+func Validate(s any) error {
+	if err := v.Struct(s); err != nil {
+		var msgs []string
+		for _, fe := range err.(validator.ValidationErrors) {
+			msgs = append(msgs, fmt.Sprintf("%s: failed %s validation", fe.Field(), fe.Tag()))
+		}
+		return fmt.Errorf("%s", strings.Join(msgs, "; "))
+	}
+	return nil
+}

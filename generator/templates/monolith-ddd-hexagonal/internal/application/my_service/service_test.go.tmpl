@@ -1,0 +1,174 @@
+package my_service_test
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
+	app "github.com/my-org/my-service/internal/application/my_service"
+	domain "github.com/my-org/my-service/internal/domain/my_service"
+	"github.com/my-org/my-service/pkg/eventbus"
+	"github.com/my-org/my-service/pkg/logger"
+)
+
+// ── mocks ────────────────────────────────────────────────────────────────────
+
+type repoMock struct{ mock.Mock }
+
+func (m *repoMock) Save(ctx context.Context, ms *domain.MyService) error {
+	return m.Called(ctx, ms).Error(0)
+}
+func (m *repoMock) FindByID(ctx context.Context, id domain.ID) (*domain.MyService, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.MyService), args.Error(1)
+}
+func (m *repoMock) FindAll(ctx context.Context, spec domain.Specification) ([]*domain.MyService, int, error) {
+	args := m.Called(ctx, spec)
+	items, _ := args.Get(0).([]*domain.MyService)
+	return items, args.Int(1), args.Error(2)
+}
+func (m *repoMock) Delete(ctx context.Context, id domain.ID) error {
+	return m.Called(ctx, id).Error(0)
+}
+
+type publisherMock struct{ mock.Mock }
+
+func (m *publisherMock) Publish(ctx context.Context, events []any) error {
+	return m.Called(ctx, events).Error(0)
+}
+
+// noop is a no-op publisher for tests that do not assert on event dispatch.
+var noop = &eventbus.NoopBus{}
+
+// ── Create ────────────────────────────────────────────────────────────────────
+
+func TestCreate_OK(t *testing.T) {
+	repo := new(repoMock)
+	svc := app.New(repo, noop, logger.NewNoop())
+
+	repo.On("Save", mock.Anything, mock.AnythingOfType("*my_service.MyService")).Return(nil)
+
+	result, err := svc.Create(context.Background(), app.CreateCommand{Name: "widget"})
+
+	require.NoError(t, err)
+	assert.Equal(t, "widget", result.Name)
+	assert.NotEmpty(t, result.ID)
+	repo.AssertExpectations(t)
+}
+
+func TestCreate_EmptyName(t *testing.T) {
+	repo := new(repoMock)
+	svc := app.New(repo, noop, logger.NewNoop())
+
+	_, err := svc.Create(context.Background(), app.CreateCommand{Name: ""})
+
+	require.Error(t, err)
+	repo.AssertNotCalled(t, "Save")
+}
+
+func TestCreate_PublishesCreatedEvent(t *testing.T) {
+	repo := new(repoMock)
+	pub := new(publisherMock)
+	svc := app.New(repo, pub, logger.NewNoop())
+
+	repo.On("Save", mock.Anything, mock.AnythingOfType("*my_service.MyService")).Return(nil)
+	pub.On("Publish", mock.Anything, mock.MatchedBy(func(events []any) bool {
+		if len(events) == 0 {
+			return false
+		}
+		_, ok := events[0].(domain.MyServiceCreated)
+		return ok
+	})).Return(nil)
+
+	_, err := svc.Create(context.Background(), app.CreateCommand{Name: "widget"})
+
+	require.NoError(t, err)
+	pub.AssertExpectations(t)
+}
+
+// ── GetByID ───────────────────────────────────────────────────────────────────
+
+func TestGetByID_NotFound(t *testing.T) {
+	repo := new(repoMock)
+	svc := app.New(repo, noop, logger.NewNoop())
+
+	repo.On("FindByID", mock.Anything, domain.ID("missing")).
+		Return(nil, domain.ErrNotFound)
+
+	_, err := svc.GetByID(context.Background(), "missing")
+
+	require.ErrorIs(t, err, domain.ErrNotFound)
+	repo.AssertExpectations(t)
+}
+
+// ── Update ────────────────────────────────────────────────────────────────────
+
+func TestUpdate_OK(t *testing.T) {
+	repo := new(repoMock)
+	svc := app.New(repo, noop, logger.NewNoop())
+
+	existing := domain.Reconstruct("abc", "old name", testTime(), testTime())
+	repo.On("FindByID", mock.Anything, domain.ID("abc")).Return(existing, nil)
+	repo.On("Save", mock.Anything, mock.AnythingOfType("*my_service.MyService")).Return(nil)
+
+	result, err := svc.Update(context.Background(), app.UpdateCommand{ID: "abc", Name: "new name"})
+
+	require.NoError(t, err)
+	assert.Equal(t, "new name", result.Name)
+	repo.AssertExpectations(t)
+}
+
+func TestUpdate_PublishesRenamedEvent(t *testing.T) {
+	repo := new(repoMock)
+	pub := new(publisherMock)
+	svc := app.New(repo, pub, logger.NewNoop())
+
+	existing := domain.Reconstruct("abc", "old name", testTime(), testTime())
+	repo.On("FindByID", mock.Anything, domain.ID("abc")).Return(existing, nil)
+	repo.On("Save", mock.Anything, mock.AnythingOfType("*my_service.MyService")).Return(nil)
+	pub.On("Publish", mock.Anything, mock.MatchedBy(func(events []any) bool {
+		if len(events) == 0 {
+			return false
+		}
+		_, ok := events[0].(domain.MyServiceRenamed)
+		return ok
+	})).Return(nil)
+
+	_, err := svc.Update(context.Background(), app.UpdateCommand{ID: "abc", Name: "new name"})
+
+	require.NoError(t, err)
+	pub.AssertExpectations(t)
+}
+
+// ── Delete ────────────────────────────────────────────────────────────────────
+
+func TestDelete_OK(t *testing.T) {
+	repo := new(repoMock)
+	pub := new(publisherMock)
+	svc := app.New(repo, pub, logger.NewNoop())
+
+	repo.On("Delete", mock.Anything, domain.ID("abc")).Return(nil)
+	pub.On("Publish", mock.Anything, mock.MatchedBy(func(events []any) bool {
+		if len(events) == 0 {
+			return false
+		}
+		_, ok := events[0].(domain.MyServiceDeleted)
+		return ok
+	})).Return(nil)
+
+	err := svc.Delete(context.Background(), "abc")
+
+	require.NoError(t, err)
+	pub.AssertExpectations(t)
+}
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+func testTime() time.Time { return time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC) }

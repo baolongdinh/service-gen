@@ -1,0 +1,9 @@
+package my_service
+
+import "errors"
+
+var (
+	ErrNotFound    = errors.New("my_service: not found")
+	ErrDuplicate   = errors.New("my_service: already exists")
+	ErrInvalidName = errors.New("my_service: name must not be empty")
+)

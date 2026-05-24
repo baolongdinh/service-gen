@@ -1,0 +1,87 @@
+// Package subscriber registers cross-context event handlers.
+// This is the ONLY place where one bounded context reacts to another's events.
+//
+// Structure when adding a second bounded context (e.g. "notification"):
+//
+//	func RegisterMyServiceSubscribers(bus *eventbus.Bus, notifUC notification.UseCase, log logger.Logger) {
+//	    bus.Subscribe("my_service.MyServiceCreated", onCreated(notifUC, log))
+//	    ...
+//	}
+//
+// Anti-Corruption Layer: if the target context has a different model, wrap the
+// translation in an acl/ sub-package before calling the target UseCase.
+package subscriber
+
+import (
+	"context"
+
+	domain "github.com/my-org/my-service/internal/domain/my_service"
+	"github.com/my-org/my-service/pkg/eventbus"
+	"github.com/my-org/my-service/pkg/logger"
+)
+
+// RegisterMyServiceSubscribers registers all cross-context handlers that
+// react to events raised by the my_service bounded context.
+//
+// How to add a new bounded context reaction:
+//  1. Add the target context's UseCase as a parameter here.
+//  2. Call bus.Subscribe with the event type name and a handler that calls the UseCase.
+//  3. Wire the new UseCase argument in cmd/server/main.go.
+//
+// Event type names follow the pattern "<package>.<Type>", e.g.:
+//
+//	"my_service.MyServiceCreated"   → domain.MyServiceCreated
+//	"my_service.MyServiceRenamed"   → domain.MyServiceRenamed
+//	"my_service.MyServiceDeleted"   → domain.MyServiceDeleted
+func RegisterMyServiceSubscribers(bus *eventbus.Bus, log logger.Logger) {
+	bus.Subscribe("my_service.MyServiceCreated", onCreated(log))
+	bus.Subscribe("my_service.MyServiceRenamed", onRenamed(log))
+	bus.Subscribe("my_service.MyServiceDeleted", onDeleted(log))
+}
+
+// onCreated reacts when a MyService is created.
+//
+// Replace the log stub with the actual cross-context logic. Examples:
+//
+//	Notification context:  return notifUC.SendWelcome(ctx, notification.SendWelcomeCommand{ID: e.ID.String()})
+//	Audit context:         return auditUC.LogCreate(ctx, audit.LogCommand{EntityID: e.ID.String(), Actor: "system"})
+//	Search index context:  return searchUC.Index(ctx, search.IndexCommand{ID: e.ID.String(), Name: e.Name})
+func onCreated(log logger.Logger) eventbus.Handler {
+	return func(ctx context.Context, event any) error {
+		e, ok := event.(domain.MyServiceCreated)
+		if !ok {
+			return nil
+		}
+		log.Info("event: my_service.created", "id", e.ID.String(), "name", e.Name)
+		// TODO: call target bounded context UseCase here
+		return nil
+	}
+}
+
+// onRenamed reacts when a MyService is renamed.
+//
+// Example: update search index, sync denormalized data in another context.
+func onRenamed(log logger.Logger) eventbus.Handler {
+	return func(ctx context.Context, event any) error {
+		e, ok := event.(domain.MyServiceRenamed)
+		if !ok {
+			return nil
+		}
+		log.Info("event: my_service.renamed", "id", e.ID.String(), "name", e.Name)
+		return nil
+	}
+}
+
+// onDeleted reacts when a MyService is deleted.
+//
+// Example: cascade soft-delete in another context, remove from search index.
+func onDeleted(log logger.Logger) eventbus.Handler {
+	return func(ctx context.Context, event any) error {
+		e, ok := event.(domain.MyServiceDeleted)
+		if !ok {
+			return nil
+		}
+		log.Info("event: my_service.deleted", "id", e.ID.String())
+		return nil
+	}
+}

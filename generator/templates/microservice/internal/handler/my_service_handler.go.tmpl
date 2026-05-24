@@ -1,0 +1,114 @@
+package handler
+
+import (
+	"encoding/json"
+	"errors"
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	svcerr "github.com/my-org/my-service/internal/errors"
+	"github.com/my-org/my-service/internal/repositories"
+	"github.com/my-org/my-service/internal/services"
+	"github.com/my-org/my-service/pkg/httputil"
+	"github.com/my-org/my-service/pkg/logger"
+)
+
+type myServiceHandler struct {
+	svc services.MyServiceService
+	log logger.Logger
+}
+
+// RegisterMyServiceRoutes attaches CRUD routes to the given router.
+// All routes live under whatever prefix the parent router was mounted at.
+func RegisterMyServiceRoutes(r chi.Router, svc services.MyServiceService, log logger.Logger) {
+	h := &myServiceHandler{svc: svc, log: log}
+	r.Post("/my-services", h.Create)
+	r.Get("/my-services", h.List)
+	r.Get("/my-services/{id}", h.GetByID)
+	r.Put("/my-services/{id}", h.Update)
+	r.Delete("/my-services/{id}", h.Delete)
+}
+
+func (h *myServiceHandler) Create(w http.ResponseWriter, r *http.Request) {
+	var req services.CreateMyServiceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.BadRequest(w, "invalid request body")
+		return
+	}
+	m, err := h.svc.Create(r.Context(), req)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	httputil.JSON(w, http.StatusCreated, m)
+}
+
+func (h *myServiceHandler) GetByID(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	m, err := h.svc.GetByID(r.Context(), id)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	httputil.JSON(w, http.StatusOK, m)
+}
+
+func (h *myServiceHandler) List(w http.ResponseWriter, r *http.Request) {
+	filter := repositories.MyServiceFilter{
+		Pagination: repositories.Pagination{Page: 1, PageSize: 20},
+	}
+	items, total, err := h.svc.List(r.Context(), filter)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	httputil.JSON(w, http.StatusOK, map[string]any{"items": items, "total": total})
+}
+
+func (h *myServiceHandler) Update(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req services.UpdateMyServiceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.BadRequest(w, "invalid request body")
+		return
+	}
+	m, err := h.svc.Update(r.Context(), id, req)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	httputil.JSON(w, http.StatusOK, m)
+}
+
+func (h *myServiceHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := h.svc.Delete(r.Context(), id); err != nil {
+		h.handleError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleError maps service-layer errors to HTTP status codes.
+// Service errors carry a typed Code; unknown errors become 500.
+func (h *myServiceHandler) handleError(w http.ResponseWriter, err error) {
+	var svcErr *svcerr.ServiceError
+	if errors.As(err, &svcErr) {
+		switch svcErr.Code {
+		case svcerr.CodeNotFound:
+			httputil.Error(w, http.StatusNotFound, svcErr.Message)
+		case svcerr.CodeAlreadyExists:
+			httputil.Error(w, http.StatusConflict, svcErr.Message)
+		case svcerr.CodeUnauthorized:
+			httputil.Error(w, http.StatusUnauthorized, svcErr.Message)
+		case svcerr.CodeInvalidInput:
+			httputil.Error(w, http.StatusBadRequest, svcErr.Message)
+		default:
+			h.log.Error("internal error", "error", err)
+			httputil.InternalServerError(w)
+		}
+		return
+	}
+	h.log.Error("unexpected error", "error", err)
+	httputil.InternalServerError(w)
+}
