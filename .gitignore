@@ -33,4 +33,5 @@ specs/
 *.test
 *.out
 vendor/
-service-gen
+/service-gen
+/service-gen.exe
